@@ -619,4 +619,4 @@ function Quest({ roomCode, roomData, user, myRole }) {
       {!isEvil && <p className="text-center text-[10px] text-slate-600 font-bold">* 선의 세력은 '성공'만 선택할 수 있습니다.</p>}
     </div>
   );
-    }
+}
