@@ -16,13 +16,14 @@ import {
 // Firebase 콘솔 -> 프로젝트 설정 -> 일반 -> 내 앱 -> SDK 설정 및 구성
 // ==================================================================
 const firebaseConfig = {
-  apiKey: "AIzaSy...",
-  authDomain: "project-id.firebaseapp.com",
-  projectId: "project-id",
-  storageBucket: "project-id.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
+  authDomain: "test-4305d.firebaseapp.com",
+  projectId: "test-4305d",
+  storageBucket: "test-4305d.firebasestorage.app",
+  messagingSenderId: "402376205992",
+  appId: "1:402376205992:web:be662592fa4d5f0efb849d"
 };
+
 // ==================================================================
 
 // Firebase 초기화
