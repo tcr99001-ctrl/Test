@@ -1,12 +1,14 @@
+import './globals.css'
+
 export const metadata = {
-  title: 'Liar Game Multiplayer',
-  description: 'Real-time Multiplayer Liar Game',
-};
+  title: 'Avalon Online',
+  description: 'The Resistance: Avalon',
+}
 
 export default function RootLayout({ children }) {
   return (
     <html lang="ko">
-      <body style={{ margin: 0, padding: 0, backgroundColor: '#f8fafc' }}>{children}</body>
+      <body>{children}</body>
     </html>
-  );
+  )
 }
