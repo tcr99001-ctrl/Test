@@ -12,8 +12,7 @@ import {
 } from 'lucide-react';
 
 // ==================================================================
-// [중요] 아래 firebaseConfig 내용을 본인의 설정값으로 바꿔주세요!
-// Firebase 콘솔 -> 프로젝트 설정 -> 일반 -> 내 앱 -> SDK 설정 및 구성
+// [완료] 사용자님의 Firebase 설정값을 채워 넣었습니다.
 // ==================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
@@ -23,7 +22,6 @@ const firebaseConfig = {
   messagingSenderId: "402376205992",
   appId: "1:402376205992:web:be662592fa4d5f0efb849d"
 };
-
 // ==================================================================
 
 // Firebase 초기화
@@ -35,11 +33,11 @@ try {
     firebaseApp = getApps()[0];
   }
 } catch (e) {
-  console.error("Firebase 초기화 에러 (설정값을 확인하세요):", e);
+  console.error("Firebase 초기화 에러:", e);
 }
 
-const db = getFirestore(firebaseApp);
-const auth = getAuth(firebaseApp);
+const db = firebaseApp ? getFirestore(firebaseApp) : null;
+const auth = firebaseApp ? getAuth(firebaseApp) : null;
 
 export default function Home() {
   const [user, setUser] = useState(null);
@@ -51,7 +49,10 @@ export default function Home() {
   const [error, setError] = useState(null);
   const [copyStatus, setCopyStatus] = useState(null);
 
-  // 1. URL 파라미터 감지 (초대 링크 기능)
+  // ★ 핵심 수정: 내가 이 방에 참여했는지 확인 (참여 안 했으면 입력 화면 보여줌)
+  const isJoined = user && players.some(p => p.id === user.uid);
+
+  // 1. URL 파라미터 감지
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -64,38 +65,30 @@ export default function Home() {
 
   // 2. 익명 로그인
   useEffect(() => {
+    if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser(u);
       } else {
-        signInAnonymously(auth).catch((err) => {
-          console.error(err);
-          setError("서버 접속 실패 (Firebase 설정을 확인하세요)");
-        });
+        signInAnonymously(auth).catch((err) => console.error(err));
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // 3. 방 데이터 실시간 동기화
+  // 3. 데이터 동기화
   useEffect(() => {
-    if (!user || !roomCode || roomCode.length !== 4) return;
+    if (!user || !roomCode || roomCode.length !== 4 || !db) return;
 
-    // 방 정보 구독
     const roomRef = doc(db, 'rooms', roomCode);
     const unsubscribeRoom = onSnapshot(roomRef, (docSnap) => {
       if (docSnap.exists()) {
         setRoomData(docSnap.data());
-        setError(null);
       } else {
         setRoomData(null);
       }
-    }, (err) => {
-      console.error(err);
-      // 권한 에러 방지를 위해 간단한 메시지만 출력
     });
 
-    // 플레이어 목록 구독
     const playersRef = collection(db, 'rooms', roomCode, 'players');
     const unsubscribePlayers = onSnapshot(playersRef, (querySnap) => {
       const pList = [];
@@ -111,25 +104,14 @@ export default function Home() {
     if (!playerName.trim()) return setError("닉네임을 입력해주세요.");
     const code = Math.random().toString(36).substring(2, 6).toUpperCase();
     try {
-      // 방 기본 정보 생성
       await setDoc(doc(db, 'rooms', code), {
-        hostId: user.uid,
-        status: 'lobby',
-        keyword: '',
-        liarId: '',
-        category: '',
-        createdAt: Date.now()
+        hostId: user.uid, status: 'lobby', category: '', keyword: '', liarId: '', createdAt: Date.now()
       });
-      // 플레이어 추가
       await setDoc(doc(db, 'rooms', code, 'players', user.uid), {
-        name: playerName,
-        joinedAt: Date.now()
+        name: playerName, joinedAt: Date.now()
       });
       setRoomCode(code);
-    } catch (e) {
-      console.error(e);
-      setError("방 생성 실패 (Firestore 규칙을 확인하세요)");
-    }
+    } catch (e) { setError("오류: 데이터베이스 권한을 확인하세요."); }
   };
 
   // 방 입장
@@ -144,9 +126,7 @@ export default function Home() {
         name: playerName, joinedAt: Date.now()
       });
       setRoomCode(code);
-    } catch (e) {
-      setError(e.message);
-    }
+    } catch (e) { setError(e.message); }
   };
 
   // 게임 시작
@@ -168,26 +148,32 @@ export default function Home() {
     });
   };
 
-  // 초대 링크 복사
   const copyInviteLink = () => {
     if (typeof window === 'undefined') return;
     const inviteUrl = `${window.location.origin}?room=${roomCode}`;
-    navigator.clipboard.writeText(inviteUrl).then(() => {
-      setCopyStatus('link');
-      setTimeout(() => setCopyStatus(null), 2000);
-    });
+    
+    // 모바일 호환성 강화 복사 로직
+    const el = document.createElement('textarea');
+    el.value = inviteUrl;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    
+    setCopyStatus('link');
+    setTimeout(() => setCopyStatus(null), 2000);
   };
 
-  if (!user) return <div className="h-screen flex items-center justify-center text-indigo-600 font-bold">서버 연결 중...</div>;
+  if (!user) return <div className="h-screen flex items-center justify-center text-indigo-600 font-bold">로딩 중...</div>;
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 font-sans text-slate-900" style={{ fontFamily: 'sans-serif' }}>
+    <div className="min-h-screen flex flex-col items-center p-4 font-sans text-slate-900 bg-slate-50">
       <div className="max-w-md w-full bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100" style={{ minHeight: '500px' }}>
         
         {/* 헤더 */}
         <div className="bg-indigo-600 p-8 text-white text-center">
-          <h1 className="text-3xl font-black mb-2" style={{ fontWeight: 900 }}>LIAR GAME</h1>
-          {roomCode && (
+          <h1 className="text-3xl font-black mb-2">LIAR GAME</h1>
+          {isJoined && roomCode && (
             <div className="inline-block bg-indigo-700/50 rounded-xl px-4 py-2 border border-indigo-500/30">
                <span className="font-mono text-xl font-bold">{roomCode}</span>
             </div>
@@ -196,13 +182,15 @@ export default function Home() {
 
         <div className="p-8">
           {error && (
-            <div className="mb-6 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100 flex items-center gap-2">
+            <div className="mb-6 p-3 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 flex items-center gap-2">
               <AlertCircle size={16} /> {error}
             </div>
           )}
 
-          {/* 대문 */}
-          {!roomData && (
+          {/* [수정됨] 내가 아직 참여하지 않았다면(!isJoined), 
+             링크를 타고 왔더라도 무조건 이름 입력 화면을 보여줍니다.
+          */}
+          {!isJoined && (
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase ml-1">닉네임</label>
@@ -211,23 +199,28 @@ export default function Home() {
                   maxLength={10}
                   value={playerName}
                   onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="사용할 이름"
+                  placeholder="이름을 입력하세요"
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 outline-none font-bold"
-                  style={{ display: 'block', boxSizing: 'border-box' }}
                 />
               </div>
+
               <div className="pt-2 space-y-3">
-                <button 
-                  onClick={createRoom}
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all"
-                >
-                  방 만들기
-                </button>
-                <div className="flex items-center gap-3 text-slate-300 my-2">
-                  <div className="h-px bg-slate-200 flex-1"></div>
-                  <span className="text-[10px] font-bold uppercase">OR</span>
-                  <div className="h-px bg-slate-200 flex-1"></div>
-                </div>
+                {!roomCode && (
+                  <>
+                  <button 
+                    onClick={createRoom}
+                    className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                  >
+                    방 만들기
+                  </button>
+                  <div className="flex items-center gap-3 text-slate-300 my-2">
+                    <div className="h-px bg-slate-200 flex-1"></div>
+                    <span className="text-[10px] font-bold uppercase">OR</span>
+                    <div className="h-px bg-slate-200 flex-1"></div>
+                  </div>
+                  </>
+                )}
+
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -236,9 +229,12 @@ export default function Home() {
                     onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
                     placeholder="초대 코드"
                     className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-xl text-center font-mono font-bold text-lg outline-none"
-                    style={{ minWidth: 0 }}
+                    // 링크로 왔을 때 코드가 자동 입력되어 있음
                   />
-                  <button onClick={joinRoom} className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-black transition-all">
+                  <button 
+                    onClick={joinRoom} 
+                    className={`flex-1 text-white py-3 rounded-xl font-bold transition-all ${roomCode ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-800 hover:bg-black'}`}
+                  >
                     입장하기
                   </button>
                 </div>
@@ -247,7 +243,7 @@ export default function Home() {
           )}
 
           {/* 대기실 */}
-          {roomData && roomData.status === 'lobby' && (
+          {isJoined && roomData && roomData.status === 'lobby' && (
             <div className="space-y-6">
               <h2 className="font-bold text-slate-700 text-lg">대기실 ({players.length}명)</h2>
               
@@ -284,7 +280,7 @@ export default function Home() {
                    게임 시작 <Play size={20} fill="currentColor" />
                 </button>
               ) : (
-                <div className="p-4 bg-slate-100 rounded-xl text-center text-xs font-bold text-slate-500">
+                <div className="p-4 bg-slate-100 rounded-xl text-center text-xs font-bold text-slate-500 animate-pulse">
                   방장이 시작하기를 기다리는 중...
                 </div>
               )}
@@ -292,7 +288,7 @@ export default function Home() {
           )}
 
           {/* 게임 진행 */}
-          {roomData && roomData.status === 'playing' && (
+          {isJoined && roomData && roomData.status === 'playing' && (
             <div className="text-center space-y-6">
               <div>
                 <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">Theme</span>
