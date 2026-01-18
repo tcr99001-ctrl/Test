@@ -8,11 +8,12 @@ import {
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
   Play, RefreshCw, Eye, EyeOff, Users, Copy, CheckCircle2, Crown, 
-  Sword, Shield, ThumbsUp, ThumbsDown, AlertCircle, Share2, Link as LinkIcon, Wrench 
+  Sword, Shield, ThumbsUp, ThumbsDown, AlertCircle, Share2, 
+  Link as LinkIcon, Sparkles, XCircle, Scroll, Skull
 } from 'lucide-react';
 
 // ==================================================================
-// [필수] Firebase 설정값 (기존 값 유지)
+// [필수] 사용자님의 Firebase 설정값
 // ==================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
@@ -22,7 +23,6 @@ const firebaseConfig = {
   messagingSenderId: "402376205992",
   appId: "1:402376205992:web:be662592fa4d5f0efb849d"
 };
-// ==================================================================
 
 // --- [1] Firebase 초기화 ---
 let firebaseApp;
@@ -74,12 +74,11 @@ export default function AvalonGame() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [error, setError] = useState(null);
   const [copyStatus, setCopyStatus] = useState(null);
-  const [isDevMode, setIsDevMode] = useState(false); // 개발자 모드 상태
 
   const isJoined = user && players.some(p => p.id === user.uid);
   const isHost = roomData?.hostId === user?.uid;
 
-  // URL 파라미터
+  // Init
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
@@ -87,7 +86,6 @@ export default function AvalonGame() {
     }
   }, []);
 
-  // 로그인
   useEffect(() => {
     if(!auth) return;
     const unsub = onAuthStateChanged(auth, u => {
@@ -97,7 +95,6 @@ export default function AvalonGame() {
     return () => unsub();
   }, []);
 
-  // 데이터 동기화
   useEffect(() => {
     if(!user || !roomCode || roomCode.length!==4 || !db) return;
     const unsubRoom = onSnapshot(doc(db,'rooms',roomCode), s => setRoomData(s.exists()?s.data():null));
@@ -108,37 +105,29 @@ export default function AvalonGame() {
     return () => { unsubRoom(); unsubPlayers(); };
   }, [user, roomCode]);
 
-  // Presence System
+  // Presence
   useEffect(() => {
     if(!isJoined || !roomCode || !user) return;
-    const heartbeat = async () => {
-      try {
-        await updateDoc(doc(db,'rooms',roomCode,'players',user.uid), { lastActive: Date.now() });
-      } catch(e){}
-    };
+    const heartbeat = async () => { try { await updateDoc(doc(db,'rooms',roomCode,'players',user.uid), { lastActive: Date.now() }); } catch(e){} };
     heartbeat();
     const timer = setInterval(heartbeat, 5000);
     return () => clearInterval(timer);
   }, [isJoined, roomCode, user]);
 
-  // 유령 유저 정리
   useEffect(() => {
     if(!isHost || !players.length) return;
     const cleaner = setInterval(() => {
       const now = Date.now();
       players.forEach(async p => {
-        if(p.lastActive && now - p.lastActive > 15000) {
-          try { await deleteDoc(doc(db,'rooms',roomCode,'players',p.id)); } catch(e){}
-        }
+        if(p.lastActive && now - p.lastActive > 15000) { try { await deleteDoc(doc(db,'rooms',roomCode,'players',p.id)); } catch(e){} }
       });
     }, 10000);
     return () => clearInterval(cleaner);
   }, [isHost, players, roomCode]);
 
-
-  // --- 핸들러 함수들 ---
+  // Actions
   const handleCreate = async () => {
-    if(!playerName) return setError("이름 입력 필요");
+    if(!playerName) return setError("닉네임을 입력해주세요.");
     const code = Math.random().toString(36).substring(2,6).toUpperCase();
     await setDoc(doc(db,'rooms',code), {
       hostId: user.uid, status: 'lobby', phase: 'team_building',
@@ -151,47 +140,27 @@ export default function AvalonGame() {
   };
 
   const handleJoin = async () => {
-    if(!playerName || roomCode.length!==4) return setError("정보 확인 필요");
+    if(!playerName || roomCode.length!==4) return setError("이름과 코드를 확인해주세요.");
     const snap = await getDoc(doc(db,'rooms',roomCode));
-    if(!snap.exists()) return setError("방 없음");
+    if(!snap.exists()) return setError("존재하지 않는 방입니다.");
     await setDoc(doc(db,'rooms',roomCode,'players',user.uid), { name: playerName, joinedAt: Date.now(), lastActive: Date.now() });
   };
 
   const handleStart = async () => {
-    const count = players.length;
-    let finalRoles = [];
-    let finalRules = [];
-
-    // [개발자 모드 로직]
-    if (isDevMode) {
-      // 인원수 상관없이 랜덤 역할 부여 & 룰은 1명 필요로 고정
-      const testRolesPool = ['멀린', '암살자', '퍼시벌', '모르가나', '시민', '미니언'];
-      finalRoles = players.map(() => testRolesPool[Math.floor(Math.random() * testRolesPool.length)]);
-      finalRules = [1, 1, 1, 1, 1]; // 모든 퀘스트 1명만 필요
-    } else {
-      // [정식 게임 로직]
-      if (count < 5) return setError("최소 5명 필요 (테스트하려면 개발자 모드 체크)");
-      finalRoles = distributeRoles(count);
-      finalRules = QUEST_RULES[count];
-    }
-
+    if(players.length < 5) return setError("최소 5명의 기사가 필요합니다.");
+    const roles = distributeRoles(players.length);
     const updates = players.map((p,i) => {
-      const r = finalRoles[i];
+      const r = roles[i];
       const evil = ['암살자','모르가나','오베론','미니언','모드레드'].includes(r);
       return updateDoc(doc(db,'rooms',roomCode,'players',p.id), { role:r, isEvil:evil });
     });
     await Promise.all(updates);
-    
     await updateDoc(doc(db,'rooms',roomCode), { 
-      status: 'playing', 
-      questRules: finalRules, 
-      leaderIndex: 0,
-      isDevMode: isDevMode // DB에도 기록
+      status: 'playing', questRules: QUEST_RULES[players.length], leaderIndex: 0 
     });
   };
 
   const copyInviteLink = () => {
-    if (typeof window === 'undefined') return;
     const inviteUrl = `${window.location.origin}?room=${roomCode}`;
     const el = document.createElement('textarea');
     el.value = inviteUrl;
@@ -211,117 +180,279 @@ export default function AvalonGame() {
     const evils = players.filter(p=>p.isEvil && p.role!=='오베론' && p.role!=='모드레드').map(p=>p.name).join(', ');
     const merlins = players.filter(p=>['멀린','모르가나'].includes(p.role)).map(p=>p.name).join(', ');
     
-    if(me.role==='멀린') info=`악당: ${evils}`;
+    if(me.role==='멀린') info=`악의 하수인: ${evils}`;
     else if(me.role==='퍼시벌') info=`멀린 후보: ${merlins}`;
-    else if(me.isEvil && me.role!=='오베론') info=`동료: ${evils}`;
-    else info="특수 능력이 없습니다.";
+    else if(me.isEvil && me.role!=='오베론') info=`동료 악당: ${evils}`;
+    else info="당신은 충실한 아서왕의 신하입니다.";
     return { ...me, info };
   };
   const myData = getMyData();
 
-  if(!user) return <div className="h-screen flex items-center justify-center bg-slate-900 text-amber-500 font-bold">로딩 중...</div>;
+  if(!user) return (
+    <div className="flex h-screen flex-col items-center justify-center bg-slate-950 text-slate-400 font-sans gap-4">
+      <div className="w-12 h-12 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin"></div>
+      <p className="animate-pulse tracking-widest text-xs uppercase">Connecting to Avalon...</p>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col items-center p-4">
-      <div className="max-w-md w-full">
-        <div className="bg-slate-800 p-6 rounded-t-2xl text-center border-b border-slate-700">
-          <h1 className="text-2xl font-black text-amber-500 tracking-widest">AVALON</h1>
-          {isJoined && <span className="inline-block bg-slate-900 px-2 py-1 rounded text-xs text-slate-400 mt-2">CODE: {roomCode}</span>}
-          {roomData?.isDevMode && <div className="mt-2 text-xs font-bold text-red-400 border border-red-500 inline-block px-2 py-0.5 rounded">🛠 TEST MODE</div>}
-        </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
+      
+      {/* 배경 장식 */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[100px] animate-pulse"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[100px] animate-pulse delay-1000"></div>
+      </div>
 
-        <div className="bg-slate-800 p-6 rounded-b-2xl shadow-2xl min-h-[400px]">
-          {error && <div className="mb-4 p-3 bg-red-900/50 text-red-200 text-xs rounded flex gap-2"><AlertCircle size={14}/>{error}</div>}
+      <div className="relative mx-auto max-w-lg min-h-screen flex flex-col p-6">
+        
+        {/* 헤더 */}
+        <header className="flex items-center justify-between py-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl shadow-lg shadow-blue-500/20">
+              <Sword size={24} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tighter leading-none bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">AVALON</h1>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">The Resistance</p>
+            </div>
+          </div>
+          {isJoined && roomCode && (
+            <div className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-full backdrop-blur-md">
+              <span className="text-xs font-mono font-bold text-amber-500 tracking-widest">{roomCode}</span>
+            </div>
+          )}
+        </header>
 
+        {/* 메인 컨텐츠 영역 */}
+        <main className="flex-1 flex flex-col relative z-10">
+          
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 animate-in slide-in-from-top-4">
+              <AlertCircle className="text-red-400 shrink-0" size={20} />
+              <p className="text-sm font-medium text-red-200">{error}</p>
+              <button onClick={()=>setError(null)} className="ml-auto text-red-400 hover:text-white">✕</button>
+            </div>
+          )}
+
+          {/* 1. 입장 화면 */}
           {!isJoined && (
-            <div className="space-y-4 animate-in fade-in">
-              <input value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="닉네임" className="w-full bg-slate-700 p-3 rounded text-white outline-none"/>
-              {!roomCode && <button onClick={handleCreate} className="w-full bg-amber-600 p-3 rounded font-bold">방 만들기</button>}
-              <div className="flex gap-2">
-                <input value={roomCode} onChange={e=>setRoomCode(e.target.value.toUpperCase())} placeholder="CODE" className="flex-1 bg-slate-700 p-3 rounded text-center font-mono font-bold text-white"/>
-                <button onClick={handleJoin} className="flex-1 bg-indigo-600 p-3 rounded font-bold">입장</button>
+            <div className="my-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
+              <div className="text-center space-y-2 mb-10">
+                <h2 className="text-4xl font-black text-white">원탁의 기사단</h2>
+                <p className="text-slate-400 text-sm">성스러운 임무를 수행할 준비가 되셨습니까?</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Nickname</label>
+                  <input 
+                    value={playerName} 
+                    onChange={e=>setPlayerName(e.target.value)} 
+                    placeholder="기사님의 이름" 
+                    className="w-full bg-slate-900/80 border border-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-2xl px-5 py-4 text-lg font-bold text-white placeholder-slate-600 outline-none transition-all"
+                  />
+                </div>
+
+                {!roomCode ? (
+                  <>
+                    <button 
+                      onClick={handleCreate} 
+                      className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-blue-900/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2 group"
+                    >
+                      <Sparkles size={20} className="group-hover:animate-spin-slow" /> 새로운 원정대 결성
+                    </button>
+                    <div className="relative py-2">
+                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
+                      <div className="relative flex justify-center"><span className="bg-slate-950 px-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest">Or Join</span></div>
+                    </div>
+                  </>
+                ) : null}
+
+                <div className="flex gap-3">
+                  <input 
+                    value={roomCode} 
+                    onChange={e=>setRoomCode(e.target.value.toUpperCase())} 
+                    placeholder="CODE" 
+                    maxLength={4}
+                    className="flex-1 bg-slate-900/80 border border-slate-800 focus:border-indigo-500 rounded-2xl text-center font-mono font-black text-xl uppercase outline-none transition-all"
+                  />
+                  <button 
+                    onClick={handleJoin} 
+                    className="flex-[1.5] bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-bold text-lg border border-slate-700 transition-all active:scale-[0.98]"
+                  >
+                    입장하기
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
+          {/* 2. 대기실 */}
           {isJoined && roomData?.status === 'lobby' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="flex justify-between items-center"><h2 className="font-bold">대기실 ({players.length})</h2></div>
-              
-              <button onClick={copyInviteLink} className="w-full bg-slate-700 border border-slate-600 p-3 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-slate-300"><Share2 size={16} /> 링크 복사</div>
-                {copyStatus === 'link' ? <CheckCircle2 size={16} className="text-emerald-500"/> : <LinkIcon size={16} className="opacity-30"/>}
-              </button>
-
-              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto">
-                {players.map(p => (
-                  <div key={p.id} className="bg-slate-700 p-2 rounded flex items-center gap-2 text-sm">
-                    <div className={`w-2 h-2 rounded-full ${p.id===roomData.hostId?'bg-amber-400':'bg-emerald-400'}`}/>
-                    {p.name}
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
+              <div className="p-6 bg-slate-900/50 border border-slate-800/50 rounded-[2rem] relative overflow-hidden group">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="flex justify-between items-end relative z-10">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Knights</p>
+                    <h2 className="text-4xl font-black text-white">{players.length} <span className="text-xl text-slate-600">/ 10</span></h2>
                   </div>
-                ))}
+                  <div className="flex -space-x-2">
+                    {players.slice(0,5).map(p=>(
+                      <div key={p.id} className={`w-8 h-8 rounded-full border-2 border-slate-900 ${p.id===roomData.hostId?'bg-amber-400':'bg-gradient-to-br from-blue-400 to-indigo-500'}`}></div>
+                    ))}
+                    {players.length>5 && <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-400">+{players.length-5}</div>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-2">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Player List</h3>
+                  <button onClick={copyInviteLink} className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                    {copyStatus==='link' ? <><CheckCircle2 size={12}/> Copied</> : <><LinkIcon size={12}/> Copy Link</>}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 max-h-[40vh] overflow-y-auto pr-1">
+                  {players.map(p => (
+                    <div key={p.id} className="flex items-center justify-between p-4 bg-slate-900/80 border border-slate-800 rounded-2xl backdrop-blur-sm">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2.5 h-2.5 rounded-full ${p.id===roomData.hostId?'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]':'bg-emerald-500'}`}></div>
+                        <span className="font-bold text-slate-200">{p.name}</span>
+                        {p.id===user.uid && <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-bold">YOU</span>}
+                      </div>
+                      {p.id===roomData.hostId && <Crown size={16} className="text-amber-500" />}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {isHost ? (
-                <div className="space-y-3 mt-4">
-                  <button onClick={handleStart} className="w-full bg-emerald-600 p-4 rounded-xl font-bold flex justify-center gap-2">
-                    <Play size={20}/> 게임 시작 {isDevMode ? '(Test)' : '(최소 5명)'}
-                  </button>
-                  
-                  {/* 개발자 모드 토글 (방장 전용) */}
-                  <div 
-                    onClick={() => setIsDevMode(!isDevMode)}
-                    className={`flex items-center justify-center gap-2 p-2 rounded border cursor-pointer select-none transition-all ${isDevMode ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-slate-900 border-slate-700 text-slate-500'}`}
+                <div className="pt-4 mt-auto sticky bottom-0">
+                  <button 
+                    onClick={handleStart} 
+                    className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white py-5 rounded-[1.5rem] font-black text-xl shadow-xl shadow-emerald-900/20 flex items-center justify-center gap-3 transition-all active:scale-[0.98]"
                   >
-                    <Wrench size={14} />
-                    <span className="text-xs font-bold">개발자 모드 (인원 제한 해제)</span>
-                    <div className={`w-3 h-3 rounded-full ${isDevMode ? 'bg-red-500' : 'bg-slate-600'}`}></div>
-                  </div>
+                    <Play fill="currentColor" size={24}/> 게임 시작
+                  </button>
+                  <p className="text-center text-[10px] text-slate-600 font-bold mt-3 uppercase tracking-widest">Min 5 Players Required</p>
                 </div>
-              ) : <div className="text-center text-slate-500 text-sm py-4 animate-pulse">방장을 기다리는 중...</div>}
+              ) : (
+                <div className="mt-auto p-4 bg-slate-900/50 rounded-2xl border border-dashed border-slate-800 text-center">
+                  <p className="text-xs font-bold text-slate-500 animate-pulse">방장의 시작을 기다리는 중...</p>
+                </div>
+              )}
             </div>
           )}
 
+          {/* 3. 게임 플레이 */}
           {isJoined && roomData?.status === 'playing' && myData && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="flex justify-between px-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
-                {roomData.questScores.map((s,i) => (
-                  <div key={i} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${s===true?'bg-blue-600':s===false?'bg-red-600':i===roomData.currentQuestIndex?'bg-amber-600 animate-pulse':'bg-slate-700'}`}>
-                    {s===true?'O':s===false?'X':i+1}
-                  </div>
-                ))}
-              </div>
-
-              <div onClick={()=>setIsRevealed(!isRevealed)} className={`cursor-pointer p-4 rounded-xl border-2 border-dashed text-center transition-all ${isRevealed?(myData.isEvil?'border-red-800 bg-red-900/20':'border-blue-800 bg-blue-900/20'):'border-slate-600 hover:bg-slate-700'}`}>
-                {isRevealed ? (
-                  <div><p className={`text-xl font-black ${myData.isEvil?'text-red-500':'text-blue-400'}`}>{myData.role}</p><p className="text-xs text-slate-400 mt-1">{myData.info}</p></div>
-                ) : <span className="text-slate-500 text-sm font-bold flex items-center justify-center gap-2"><Eye size={16}/> 역할 확인 (비밀)</span>}
-              </div>
+            <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-8 duration-700">
               
-              <div className="bg-slate-700/50 p-2 rounded text-center text-sm mb-2 border border-slate-700">
-                👑 리더: <span className="font-bold text-amber-400">{players[roomData.leaderIndex]?.name}</span>
+              {/* 점수판 트랙 */}
+              <div className="relative pt-2 pb-6 px-1">
+                <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-800 rounded-full -z-10"></div>
+                <div className="flex justify-between items-center">
+                  {roomData.questScores.map((s,i) => (
+                    <div key={i} className={`relative group transition-all duration-500 ${i===roomData.currentQuestIndex ? 'scale-110' : 'scale-100'}`}>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm border-4 transition-colors duration-300 z-10 relative
+                        ${s===true ? 'bg-blue-600 border-blue-800 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 
+                          s===false ? 'bg-rose-600 border-rose-800 text-white shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 
+                          i===roomData.currentQuestIndex ? 'bg-slate-900 border-amber-500 text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse' : 
+                          'bg-slate-900 border-slate-700 text-slate-600'}`}>
+                        {s===true ? 'O' : s===false ? 'X' : i+1}
+                      </div>
+                      {/* 필요 인원수 뱃지 */}
+                      <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-500 bg-slate-900 px-1.5 rounded border border-slate-800">
+                        {roomData.questRules[i]}인
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              {roomData.phase === 'team_building' && (
-                <TeamBuilding roomCode={roomCode} players={players} roomData={roomData} user={user} isLeader={players[roomData.leaderIndex]?.id===user.uid} />
-              )}
-              {roomData.phase === 'voting' && (
-                <Voting roomCode={roomCode} roomData={roomData} user={user} />
-              )}
-              {roomData.phase === 'quest' && (
-                <Quest roomCode={roomCode} roomData={roomData} user={user} myRole={myData.role} />
-              )}
-              {roomData.phase === 'assassin' && <div className="text-center p-4 bg-red-900/30 rounded border border-red-500"><h2 className="text-xl font-bold text-red-500">⚔️ 암살 단계</h2><p className="text-sm text-red-200">악의 세력은 멀린을 찾아야 합니다.</p></div>}
-              {roomData.status === 'evil_win' && <div className="text-center p-4 bg-red-600 rounded shadow-lg"><h2 className="text-2xl font-black text-white">악의 세력 승리!</h2></div>}
+              {/* 역할 카드 (토글) */}
+              <div 
+                onClick={()=>setIsRevealed(!isRevealed)} 
+                className={`relative overflow-hidden cursor-pointer rounded-3xl border transition-all duration-500 group select-none
+                  ${isRevealed 
+                    ? (myData.isEvil 
+                        ? 'bg-gradient-to-br from-rose-950 to-slate-950 border-rose-500/30' 
+                        : 'bg-gradient-to-br from-blue-950 to-slate-950 border-blue-500/30') 
+                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}
+              >
+                <div className="p-6 text-center min-h-[140px] flex flex-col items-center justify-center relative z-10">
+                  {isRevealed ? (
+                    <div className="animate-in zoom-in duration-300 space-y-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Your Identity</p>
+                      <p className={`text-3xl font-black ${myData.isEvil ? 'text-rose-500 drop-shadow-[0_0_10px_rgba(244,63,94,0.4)]' : 'text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.4)]'}`}>
+                        {myData.role}
+                      </p>
+                      <p className="text-xs font-medium text-slate-300/80 leading-relaxed px-4 pt-2 border-t border-white/5 mt-2">
+                        {myData.info}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto border border-slate-700">
+                        <Eye size={20} className="text-slate-400"/>
+                      </div>
+                      <p className="text-sm font-bold text-slate-400 tracking-wide">터치하여 역할 확인 (비밀)</p>
+                    </div>
+                  )}
+                </div>
+                {/* 배경 효과 */}
+                {isRevealed && <div className={`absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]`}></div>}
+              </div>
+
+              {/* 현재 리더 표시 */}
+              <div className="flex items-center justify-center gap-2 py-2 bg-amber-500/5 border border-amber-500/10 rounded-full">
+                <Crown size={14} className="text-amber-500" />
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Leader: </span>
+                <span className="text-sm font-black text-amber-500">{players[roomData.leaderIndex]?.name}</span>
+              </div>
+
+              {/* === Phase UI Wrappers === */}
+              <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-[2rem]">
+                {roomData.phase === 'team_building' && (
+                  <TeamBuilding roomCode={roomCode} players={players} roomData={roomData} user={user} isLeader={players[roomData.leaderIndex]?.id===user.uid} />
+                )}
+                {roomData.phase === 'voting' && (
+                  <Voting roomCode={roomCode} roomData={roomData} user={user} />
+                )}
+                {roomData.phase === 'quest' && (
+                  <Quest roomCode={roomCode} roomData={roomData} user={user} myRole={myData.role} />
+                )}
+                {roomData.phase === 'assassin' && (
+                   <div className="text-center space-y-4 py-4 animate-in zoom-in">
+                     <div className="inline-block p-4 bg-rose-500/10 rounded-full border border-rose-500/30 mb-2">
+                       <Skull size={40} className="text-rose-500" />
+                     </div>
+                     <div>
+                       <h2 className="text-2xl font-black text-rose-500 uppercase tracking-tight">Assassin Phase</h2>
+                       <p className="text-sm text-rose-200/70 mt-2">악의 세력이 최후의 반격을 준비합니다.<br/>멀린을 찾아내면 역전승합니다.</p>
+                     </div>
+                   </div>
+                )}
+                {roomData.status === 'evil_win' && (
+                  <div className="text-center py-6 animate-in bounce-in">
+                    <h2 className="text-4xl font-black text-rose-600 drop-shadow-2xl mb-2">EVIL WINS</h2>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.3em]">Game Over</p>
+                  </div>
+                )}
+              </div>
+
             </div>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );
 }
 
 // --- 하위 컴포넌트 ---
+
 function TeamBuilding({ roomCode, players, roomData, user, isLeader }) {
   const [selected, setSelected] = useState([]);
   const need = roomData.questRules[roomData.currentQuestIndex];
@@ -338,23 +469,52 @@ function TeamBuilding({ roomCode, players, roomData, user, isLeader }) {
   };
 
   return (
-    <div className="space-y-3 animate-in slide-in-from-right-4">
-      <p className="text-center text-sm text-amber-500 font-bold">원정대 {need}명을 지명하세요</p>
-      <div className="grid grid-cols-2 gap-2">
-        {players.map(p => (
-          <div key={p.id} onClick={()=>toggle(p.id)} className={`p-3 rounded border flex justify-between items-center transition-all ${selected.includes(p.id)?'bg-indigo-900 border-indigo-500 shadow-lg shadow-indigo-500/20':'bg-slate-800 border-slate-700'} ${isLeader?'cursor-pointer':''}`}>
-            <span className="text-sm font-bold">{p.name}</span>
-            {selected.includes(p.id) && <CheckCircle2 size={16} className="text-indigo-400"/>}
-          </div>
-        ))}
+    <div className="space-y-5 animate-in slide-in-from-right-4 duration-500">
+      <div className="text-center space-y-1">
+        <h3 className="text-lg font-black text-white">원정대 구성</h3>
+        <p className="text-xs font-bold text-indigo-400 uppercase tracking-wide">
+          {need}명의 기사를 선택하세요
+        </p>
       </div>
-      {isLeader && <button onClick={submit} disabled={selected.length!==need} className="w-full bg-indigo-600 disabled:bg-slate-700 p-3 rounded font-bold mt-2 transition-all">제안하기</button>}
+
+      <div className="grid grid-cols-2 gap-3">
+        {players.map(p => {
+          const isSelected = selected.includes(p.id);
+          return (
+            <div 
+              key={p.id} 
+              onClick={()=>toggle(p.id)} 
+              className={`relative p-3 rounded-2xl border-2 transition-all duration-200 flex items-center justify-between overflow-hidden
+                ${isSelected 
+                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/30 scale-[1.02]' 
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}
+                ${isLeader ? 'cursor-pointer active:scale-95' : 'opacity-80 pointer-events-none'}
+              `}
+            >
+              <span className="text-sm font-bold z-10">{p.name}</span>
+              {isSelected && <CheckCircle2 size={18} className="text-white z-10"/>}
+              {isSelected && <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-blue-500 opacity-20"></div>}
+            </div>
+          )
+        })}
+      </div>
+
+      {isLeader && (
+        <button 
+          onClick={submit} 
+          disabled={selected.length!==need} 
+          className="w-full mt-4 bg-gradient-to-r from-indigo-600 to-blue-600 disabled:from-slate-700 disabled:to-slate-800 disabled:text-slate-500 text-white py-4 rounded-2xl font-black text-lg shadow-xl shadow-indigo-900/20 transition-all active:scale-[0.98]"
+        >
+          원정대 제안하기
+        </button>
+      )}
     </div>
   );
 }
 
 function Voting({ roomCode, roomData, user }) {
   const voted = roomData.votes?.[user.uid] !== undefined;
+  
   const vote = async (appr) => {
     const newVotes = { ...roomData.votes, [user.uid]: appr };
     if(Object.keys(newVotes).length === roomData.playerCount) {
@@ -368,11 +528,36 @@ function Voting({ roomCode, roomData, user }) {
       await updateDoc(doc(db,'rooms',roomCode), { [`votes.${user.uid}`]: appr });
     }
   };
-  if(voted) return <div className="text-center text-slate-500 py-4 animate-pulse">다른 플레이어의 투표를 기다리는 중...</div>;
+
+  if(voted) return (
+    <div className="text-center py-10 animate-pulse space-y-3">
+      <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto border border-slate-700">
+        <Scroll className="text-slate-500" />
+      </div>
+      <p className="text-sm font-bold text-slate-500">다른 기사들의 결정을 기다리는 중...</p>
+    </div>
+  );
+
   return (
-    <div className="flex gap-2 animate-in zoom-in">
-      <button onClick={()=>vote(true)} className="flex-1 bg-emerald-700 hover:bg-emerald-600 p-4 rounded-xl flex flex-col items-center"><ThumbsUp/>찬성</button>
-      <button onClick={()=>vote(false)} className="flex-1 bg-rose-700 hover:bg-rose-600 p-4 rounded-xl flex flex-col items-center"><ThumbsDown/>반대</button>
+    <div className="space-y-6 animate-in zoom-in duration-300">
+      <div className="text-center">
+        <h3 className="text-lg font-black text-white">원정 승인 투표</h3>
+        <p className="text-xs text-slate-500 font-bold uppercase">제안된 원정대를 승인하시겠습니까?</p>
+      </div>
+      <div className="flex gap-4">
+        <button onClick={()=>vote(true)} className="flex-1 bg-slate-800 hover:bg-emerald-600/20 hover:border-emerald-500/50 border border-slate-700 p-6 rounded-[2rem] flex flex-col items-center gap-3 transition-all group">
+          <div className="p-4 bg-emerald-500/10 rounded-full group-hover:bg-emerald-500 group-hover:text-white transition-colors text-emerald-500">
+            <ThumbsUp size={32} />
+          </div>
+          <span className="font-black text-slate-300 group-hover:text-emerald-400">승인</span>
+        </button>
+        <button onClick={()=>vote(false)} className="flex-1 bg-slate-800 hover:bg-rose-600/20 hover:border-rose-500/50 border border-slate-700 p-6 rounded-[2rem] flex flex-col items-center gap-3 transition-all group">
+          <div className="p-4 bg-rose-500/10 rounded-full group-hover:bg-rose-500 group-hover:text-white transition-colors text-rose-500">
+            <ThumbsDown size={32} />
+          </div>
+          <span className="font-black text-slate-300 group-hover:text-rose-400">거부</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -380,6 +565,7 @@ function Voting({ roomCode, roomData, user }) {
 function Quest({ roomCode, roomData, user, myRole }) {
   const isMember = roomData.currentTeam.includes(user.uid);
   const acted = roomData.questVotes?.[user.uid] !== undefined;
+  
   const action = async (success) => {
     const newVotes = { ...roomData.questVotes, [user.uid]: success };
     if(Object.keys(newVotes).length === roomData.currentTeam.length) {
@@ -387,11 +573,13 @@ function Quest({ roomCode, roomData, user, myRole }) {
       const isFail = fails >= 1; 
       const newScores = [...roomData.questScores];
       newScores[roomData.currentQuestIndex] = !isFail;
+      
       const sTotal = newScores.filter(s=>s===true).length;
       const fTotal = newScores.filter(s=>s===false).length;
       let ph = 'team_building'; let st = 'playing';
       if(sTotal>=3) { ph='assassin'; st='assassin_phase'; }
       if(fTotal>=3) { ph='game_over'; st='evil_win'; }
+      
       await updateDoc(doc(db,'rooms',roomCode), {
         questVotes: newVotes, questScores: newScores, currentQuestIndex: roomData.currentQuestIndex+1,
         phase: ph, status: st, leaderIndex: (roomData.leaderIndex+1)%roomData.playerCount
@@ -400,13 +588,35 @@ function Quest({ roomCode, roomData, user, myRole }) {
       await updateDoc(doc(db,'rooms',roomCode), { [`questVotes.${user.uid}`]: success });
     }
   };
-  if(!isMember) return <div className="text-center text-slate-500 py-4">원정대가 임무 수행 중...</div>;
-  if(acted) return <div className="text-center text-slate-500 py-4">결과 대기 중...</div>;
+
+  if(!isMember) return <div className="text-center py-10 text-slate-500 font-bold text-sm">⚔️ 원정대가 목숨을 건 임무를 수행 중입니다...</div>;
+  if(acted) return <div className="text-center py-10 text-slate-500 font-bold text-sm">⏳ 결과를 숨죽여 기다리고 있습니다...</div>;
+
   const isEvil = ['암살자','모르가나','미니언','오베론','모드레드'].includes(myRole);
+  
   return (
-    <div className="flex gap-2 animate-in zoom-in">
-      <button onClick={()=>action(true)} className="flex-1 bg-blue-700 p-6 rounded-xl flex flex-col items-center border border-blue-500"><Shield size={32}/>성공</button>
-      {isEvil && <button onClick={()=>action(false)} className="flex-1 bg-red-800 p-6 rounded-xl flex flex-col items-center border border-red-500"><Sword size={32}/>실패</button>}
+    <div className="space-y-6 animate-in zoom-in duration-300">
+      <div className="text-center">
+        <h3 className="text-lg font-black text-white">임무 수행</h3>
+        <p className="text-xs text-slate-500 font-bold uppercase">당신의 선택이 왕국의 운명을 결정합니다</p>
+      </div>
+      <div className="flex gap-4">
+        <button onClick={()=>action(true)} className="flex-1 bg-slate-800 hover:bg-blue-600/20 hover:border-blue-500/50 border border-slate-700 p-6 rounded-[2rem] flex flex-col items-center gap-3 transition-all group">
+          <div className="p-4 bg-blue-500/10 rounded-full group-hover:bg-blue-500 group-hover:text-white transition-colors text-blue-500">
+            <Shield size={32} />
+          </div>
+          <span className="font-black text-slate-300 group-hover:text-blue-400">성공</span>
+        </button>
+        {isEvil && (
+          <button onClick={()=>action(false)} className="flex-1 bg-slate-800 hover:bg-rose-600/20 hover:border-rose-500/50 border border-slate-700 p-6 rounded-[2rem] flex flex-col items-center gap-3 transition-all group">
+            <div className="p-4 bg-rose-500/10 rounded-full group-hover:bg-rose-500 group-hover:text-white transition-colors text-rose-500">
+              <Sword size={32} />
+            </div>
+            <span className="font-black text-slate-300 group-hover:text-rose-400">실패</span>
+          </button>
+        )}
+      </div>
+      {!isEvil && <p className="text-center text-[10px] text-slate-600 font-bold">* 선의 세력은 '성공'만 선택할 수 있습니다.</p>}
     </div>
   );
-                }
+                  }
